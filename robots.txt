@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Replace with your actual site URL
+Sitemap: https://REPLACE_ME/sitemap.xml

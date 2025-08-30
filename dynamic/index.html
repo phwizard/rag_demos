@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="index,follow" />
+  <title>Zelensky Speeches – dynamic viewer (fetches from HF datasets-server)</title>
+  <style>
+    :root{ --bg:#0f1220; --card:#161a2b; --ink:#e8ecff; --muted:#9aa3c7; --accent:#6aa0ff; --chip:#222642; --border:#262a45; }
+    *{box-sizing:border-box}
+    body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif; background:var(--bg); color:var(--ink);}
+    header{position:sticky; top:0; z-index:2; background:linear-gradient(180deg, rgba(15,18,32,.95), rgba(15,18,32,.75)); backdrop-filter: saturate(160%) blur(6px); border-bottom:1px solid var(--border)}
+    header .wrap{max-width:1200px; margin:0 auto; padding:14px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+    h1{font-size:20px; margin:0; letter-spacing:.2px}
+    .meta{font-size:12px; color:var(--muted)}
+    .controls{margin-left:auto; display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .controls input, .controls button{background:var(--chip); color:var(--ink); border:1px solid var(--border); border-radius:10px; padding:8px 10px; font-size:13px}
+    .controls button{cursor:pointer}
+    main{max-width:1200px; margin:0 auto; padding:22px 20px 80px}
+    .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:16px}
+    article{background:var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; display:flex; flex-direction:column; gap:10px; box-shadow:0 4px 14px rgba(0,0,0,.25)}
+    article h2{font-size:16px; margin:0; line-height:1.3}
+    article .badges{display:flex; gap:8px; flex-wrap:wrap}
+    .chip{display:inline-flex; align-items:center; gap:6px; background:var(--chip); border:1px solid var(--border); color:var(--muted); padding:4px 8px; border-radius:999px; font-size:12px}
+    article a{color:var(--accent); text-decoration:none; word-break:break-all}
+    article p{white-space:pre-wrap; margin:0; color:#e1e6ff; line-height:1.45}
+    .source{font-size:12px}
+    footer{max-width:1200px; margin:0 auto; padding:16px 20px 40px; color:var(--muted)}
+    .hidden{display:none}
+    .count{font-variant-numeric:tabular-nums}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Zelensky speeches &middot; <span class="meta">dynamic (client-side) – uses HF datasets-server</span></h1>
+      <div class="controls">
+        <label>Pages (p): <input id="pages" value="1,2" title="Comma-separated HF viewer pages to load (each page = 100 rows)" /></label>
+        <button id="reload">Load</button>
+        <div class="meta"><span id="status">Idle</span> &middot; <span class="count"><span id="cnt">0</span> rows</span></div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div id="list" class="grid"></div>
+  </main>
+
+  <footer>
+    Source dataset: <a href="https://huggingface.co/datasets/slava-medvedev/zelensky-speeches" target="_blank" rel="noreferrer noopener">slava-medvedev/zelensky-speeches</a>. License: CC BY 4.0.
+  </footer>
+
+<script>
+const DATASET = "slava-medvedev/zelensky-speeches";
+const CONFIG = "default";
+const SPLIT = "train";
+const ROWS_PER_PAGE = 100;
+const API = "https://datasets-server.huggingface.co/rows";
+
+function toOffset(page){ return page * ROWS_PER_PAGE; }
+function tsToDate(tsLike){
+  if (tsLike == null) return "";
+  const num = Number(String(tsLike).replace(/,/g, ""));
+  if (!Number.isFinite(num)) return String(tsLike);
+  const d = new Date(num * 1000);
+  if (isNaN(d.getTime())) return String(tsLike);
+  return d.toISOString().slice(0,10);
+}
+async function fetchPage(page){
+  const url = `${API}?dataset=${encodeURIComponent(DATASET)}&config=${encodeURIComponent(CONFIG)}&split=${encodeURIComponent(SPLIT)}&offset=${toOffset(page)}&length=${ROWS_PER_PAGE}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  return res.json();
+}
+function renderRows(rows){
+  const container = document.getElementById("list");
+  for(const item of rows){
+    const r = item.row || {};
+    const art = document.createElement("article");
+    const title = document.createElement("h2");
+    title.textContent = r.topic || "(untitled)";
+    const badges = document.createElement("div"); badges.className = "badges";
+    const chipLang = document.createElement("span"); chipLang.className = "chip"; chipLang.textContent = (r.lang || "").toUpperCase();
+    const chipDate = document.createElement("span"); chipDate.className = "chip"; chipDate.textContent = tsToDate(r.date);
+    badges.appendChild(chipLang); badges.appendChild(chipDate);
+    const body = document.createElement("p"); body.textContent = r.full_text || "";
+    const link = document.createElement("div"); link.className = "source";
+    if (r.link){ const a = document.createElement("a"); a.href = r.link; a.target="_blank"; a.rel="noreferrer noopener"; a.textContent = r.link; link.appendChild(a); }
+    art.appendChild(title); art.appendChild(badges); art.appendChild(body); art.appendChild(link);
+    container.appendChild(art);
+  }
+}
+async function loadPages(pages){
+  const status = document.getElementById("status"); const cnt = document.getElementById("cnt"); const list = document.getElementById("list");
+  list.innerHTML = ""; let total = 0;
+  for (const p of pages){
+    try{
+      status.textContent = `Fetching page p=${p}…`;
+      const data = await fetchPage(p);
+      renderRows(data.rows || []);
+      total += (data.rows || []).length; cnt.textContent = total;
+    }catch(err){
+      const pre = document.createElement("pre"); pre.textContent = `Error loading page ${p}: ${err.message}`; pre.style.color = "salmon"; list.appendChild(pre);
+    }
+  }
+  status.textContent = `Loaded ${pages.length} page(s)`;
+}
+document.getElementById("reload").addEventListener("click", () => {
+  const raw = document.getElementById("pages").value.trim();
+  const pages = raw.split(",").map(s => parseInt(s,10)).filter(n => Number.isFinite(n));
+  loadPages(pages);
+});
+loadPages([1,2]);
+</script>
+</body>
+</html>
